@@ -64,6 +64,7 @@ func dequeueNextJob() *Job{
 		if q.Length() <=0{
 			continue
 		}
+		return q.Pop()
 		if q.PeekPriority() <=currentTime{
 			return q.Pop()
 		}
@@ -189,13 +190,14 @@ func startWorker( worker *Worker ){
 
 }
 var minuteEnqueueSchedule map[string][]int
-
+var orderedSloState []*jobSLOState
 func main(){
 	// parse csv
-	f,_ := os.Open("yeezy hour.csv")
+	f,_ := os.Open("fashinovaaug14.csv")
 	r:=csv.NewReader(f)
 	records,err := r.ReadAll()
 	if err != nil{
+
 		panic(err)
 	}
 	minuteEnqueueSchedule = make(map[string][]int)
@@ -219,17 +221,29 @@ func main(){
 	nextJobId = 0
 	totalJobsInScenario = 0
 	sloState=map[string]*jobSLOState	{
-		//"realtime":{slo:1000},
-		"payment":{slo:5000,name:"payment"},
-		"webhook":{slo:31000,name:"webhook"},
-		"default":{slo:30000,name:"default"},
-		//"low":{slo:900000},
-	//	"checkout_completion":{slo:5000},
+		"payment":{slo:500},
+		"webhook":{slo:60000},
+		"default":{slo:11000},
+		"low":{slo:59000},
+		"collections":{slo:12000},
+		"elasticsearch":{slo:13000},
+		"sales_model_priority":{slo:14000},
+		"checkout_completion":{slo:10000},
+		"realtime":{slo:1000},
+
+		/*"payment":{slo:1,name:"payment"},
+		"webhook":{slo:5,name:"webhook"},
+		"default":{slo:4,name:"default"},
+		"low":{slo:6,name:"low"},
+		"checkout_completion":{slo:3,name:"checkout_completion"},
+		"realtime":{slo:2,name:"realtime"},*/
+
 	}
 
 	// make sure queues are in slo order
-	var orderedSloState []*jobSLOState
+
 	for k,_ := range sloState{
+		sloState[k].name = k
 		orderedSloState = append(orderedSloState, sloState[k])
 	}
 	sort.Slice(orderedSloState, func(i,j int)bool{ return orderedSloState[i].slo < orderedSloState[j].slo })
@@ -246,16 +260,19 @@ func main(){
 	startWorkers(&jobQueue,300)
 
 
-	pushJobsRate( &jobQueue, "payment", 999, 70, 100000 )
-	pushJobsRate( &jobQueue, "default", 1020, 150, 100000 )
-	pushJobsRate( &jobQueue, "webhook", 1050, 300, 100000 )
+	//pushJobsRate( &jobQueue, "payment", 999, 70, 100000 )
+//	pushJobsRate( &jobQueue, "default", 1020, 150, 100000 )
+//	pushJobsRate( &jobQueue, "webhook", 1050, 300, 100000 )
 
-	//pushJobsOnSchedule( "payment" )
-	//pushJobsOnSchedule( "webhook" )
-	//pushJobsOnSchedule( "default")
-	//pushJobsOnSchedule( "low")
-	//pushJobsOnSchedule( "checkout_completion")
-	//pushJobsOnSchedule( "realtime")
+	pushJobsOnSchedule( "payment" )
+	pushJobsOnSchedule( "webhook" )
+	pushJobsOnSchedule( "default")
+	pushJobsOnSchedule( "low")
+	pushJobsOnSchedule( "checkout_completion")
+	pushJobsOnSchedule( "realtime")
+	pushJobsOnSchedule( "collections")
+	pushJobsOnSchedule( "elasticsearch")
+	pushJobsOnSchedule( "sales_model_priority")
 
 	simulateUntilJobsdone()
 	summary()
@@ -266,10 +283,12 @@ func summary(){
 	log("completed jobs",completedJobs.Length())
 	queueTimes := make(map [string]*timeStats)
 	queueSizes := make(map[string]*timeStats)
+	jobsWorkedCount := make(map[string]*timeStats)
 	// create empty timeStats for each job type
 	for k,_ := range sloState{
 		queueTimes[k] = &timeStats{}
 		queueSizes[k] = &timeStats{}
+		jobsWorkedCount[k] = &timeStats{}
 	}
 
 	job:= completedJobs.Pop()
@@ -278,13 +297,16 @@ func summary(){
 		queueTimes[job.JobType].add(queueTime, job.DequeueTime)
 		queueSizes[job.JobType].add(+1, job.EnqueueTime)
 		queueSizes[job.JobType].add(-1,job.DequeueTime)
+		jobsWorkedCount[job.JobType].add(1, job.DequeueTime)
 
 		job= completedJobs.Pop()
 	}
 
-	var qSizeChartData,qPriorities,qTimeSeries []chart.Series
+	var qSizeChartData,qCounts,qTimeSeries []chart.Series
 
-	for k,v := range queueTimes {
+	for i := range orderedSloState {
+		k:= orderedSloState[i].name
+		v:= queueTimes[k]
 		/*if k!= "payment"{
 			continue
 		}*/
@@ -300,8 +322,15 @@ func summary(){
 			y[i] += y[i-1]
 		}
 		qSizeChartData = append(qSizeChartData,createSeries(x,y,k))
-		x,y = sloState[k].priorityStats.orderedBucketsAvg()
-		qPriorities = append ( qPriorities, createSeries(x,y,k))
+		/*x,y = sloState[k].priorityStats.orderedBucketsAvg()
+		qPriorities = append ( qPriorities, createSeries(x,y,k))*/
+
+		x,y = jobsWorkedCount[k].orderedBucketsSum()
+		// cumulative sum
+		for i:=1; i < len(y); i++ {
+			y[i] += y[i-1]
+		}
+		qCounts = append( qCounts, createSeries(x,y,k))
 
 		x,y = v.orderedBucketsAvg()
 		qTimeSeries = append( qTimeSeries, createSeries(x,y,k))
@@ -311,7 +340,7 @@ func summary(){
 
 	}
 	graph(qSizeChartData,"queueSizes")
-//	graph(qPriorities,"queuePriorities")
+	graph(qCounts,"jobsWorked")
 	graph(qTimeSeries, "wait times")
 
 
