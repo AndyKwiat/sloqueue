@@ -4,17 +4,17 @@ import (
 	"container/heap"
 )
 
-type JobQueue struct{
+type QueryQueue struct{
 	queue priorityQueueBase
 }
 
-func CreateQ() JobQueue {
-	jq:= JobQueue{}
+func CreateQ() QueryQueue {
+	jq:= QueryQueue{}
 	heap.Init(&jq.queue)
 	return jq
 }
 
-func (jq *JobQueue)Push(job *Job,priority int){
+func (jq *QueryQueue)Push(job *Query,priority int){
 	heap.Push(&jq.queue,
 		&item{
 			value:job,
@@ -22,18 +22,18 @@ func (jq *JobQueue)Push(job *Job,priority int){
 		})
 }
 
-func (jq *JobQueue)Pop()*Job{
+func (jq *QueryQueue)Pop()*Query {
 	if jq.Length() <=0 {
 		return nil
 	}
-	return heap.Pop(&jq.queue).(*item).value.(*Job)
+	return heap.Pop(&jq.queue).(*item).value.(*Query)
 }
 
-func (jq *JobQueue)Length()int{
+func (jq *QueryQueue)Length()int{
 	return jq.queue.Len()
 }
 
-func (jq *JobQueue)PeekPriority() int{
+func (jq *QueryQueue)PeekPriority() int{
 	return jq.queue.Peek().priority
 }
 
