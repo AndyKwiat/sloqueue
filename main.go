@@ -25,6 +25,8 @@ var dbCurrentlyWorkingOn []*Query
 var completedQueries []*Query
 var totalQueriesInScenario int
 var nextQueryId int
+var utilizationStats = timeStats{}
+var waitStats = map[string]*timeStats{ "admin":{}, "nonadmin":{}}
 
 func makeQuery(queryType string, AvgDuration int ) *Query {
 	nextQueryId++
@@ -68,7 +70,7 @@ func main(){
 	totalQueriesInScenario = 0
 
 //	jobQueue := CreateQ()
-	scheduleQueriesOverTime(0,1, "checkout",10)
+	scheduleQueriesOverTime(0,1000, "nonadmin",1000)
 
 	simulateUntilJobsdone()
 	summary()
@@ -77,64 +79,18 @@ func main(){
 
 func summary(){
 	log("completed jobs", len(completedQueries))
-	/*queueTimes := make(map [string]*timeStats)
-	queueSizes := make(map[string]*timeStats)
-	jobsWorkedCount := make(map[string]*timeStats)
-	// create empty timeStats for each job type
-	k:= "default"
-		queueTimes[k] = &timeStats{}
-		queueSizes[k] = &timeStats{}
-		jobsWorkedCount[k] = &timeStats{}
 
 
-	job:= completedQueries.Pop()
-	for job != nil{
-		queueTime := job.DequeueTime - job.EnqueueTime
-		queueTimes[job.QueryType].add(queueTime, job.DequeueTime)
-		queueSizes[job.QueryType].add(+1, job.EnqueueTime)
-		queueSizes[job.QueryType].add(-1,job.DequeueTime)
-		jobsWorkedCount[job.QueryType].add(1, job.DequeueTime)
+	x,y := utilizationStats.orderedBucketsAvg()
+	graph( []chart.Series{ createSeries(x,y,"utilization")},"Utilization" )
 
-		job= completedQueries.Pop()
+	var waitStatSeries []chart.Series
+	for key,stats:= range waitStats{
+		x,y:= stats.orderedBucketsAvg()
+		waitStatSeries = append(waitStatSeries, createSeries(x,y,key))
 	}
+	graph(waitStatSeries,"queryWaitTimes")
 
-	var qSizeChartData,qCounts,qTimeSeries []chart.Series
-
-		v:= queueTimes[k]
-
-
-		log(k,"count",v.count,"avg",v.avg)
-
-		// graph queuesizes
-		x,y := queueSizes[k].orderedBucketsSum()
-		// cumulative sum
-		for i:=1; i < len(y); i++ {
-			y[i] += y[i-1]
-		}
-		qSizeChartData = append(qSizeChartData,createSeries(x,y,k))
-
-
-		x,y = jobsWorkedCount[k].orderedBucketsSum()
-		// cumulative sum
-		for i:=1; i < len(y); i++ {
-			y[i] += y[i-1]
-		}
-
-
-		qCounts = append( qCounts, createSeries(x,y,k))
-
-		x,y = v.orderedBucketsAvg()
-		qTimeSeries = append( qTimeSeries, createSeries(x,y,k))
-
-	//	x,y = sloState[k].queueTimeStats.orderedBucketsAvg()
-//		qTimeSeries = append( qTimeSeries, createSeries(x,y,k+" avg"))
-
-
-	graph(qSizeChartData,"queueSizes")
-	graph(qCounts,"jobsWorked")
-	graph(qTimeSeries, "wait times")
-
-*/
 
 }
 func intsToFloats(data []int)[]float64{
@@ -158,7 +114,7 @@ func simulateUntilJobsdone(){
 	}
 }
 
-const THREAD_COUNT = 3
+const THREAD_COUNT = 50
 func simulateTick(){
 	// add scheduled queries
 	var lastIndex int
@@ -184,6 +140,8 @@ func simulateTick(){
 
 		q.DequeueTime = currentTime
 		q.WaitingDuration = q.DequeueTime - q.EnqueueTime
+
+
 		dbCurrentlyWorkingOn = append(dbCurrentlyWorkingOn,q)
 		lastIndex = i+1
 		log("addingQueryToWorkOn", q.ID , "duration",q.QueryDuration)
@@ -196,6 +154,7 @@ func simulateTick(){
 		if q.DequeueTime + q.QueryDuration <= currentTime {
 			completedQueries = append(completedQueries, q)
 			q.CompletionTime = currentTime
+			waitStats[q.QueryType].add(q.CompletionTime - q.EnqueueTime, currentTime)
 			log("Finished query", q.ID)
 		}else{
 			newWorkQueue = append(newWorkQueue, q)
@@ -203,8 +162,10 @@ func simulateTick(){
 	}
 	dbCurrentlyWorkingOn = newWorkQueue
 
-
+	utilization:= (len(dbWorkQueue) + len(dbCurrentlyWorkingOn))*100 / THREAD_COUNT
+	utilizationStats.add(utilization,currentTime)
 	currentTime++
+
 }
 
 func log(str... interface{}){
