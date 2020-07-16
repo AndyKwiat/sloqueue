@@ -15,7 +15,7 @@ func graph(data []chart.Series,fileName string) {
 			Style: chart.StyleShow(), //enables / displays the x-axis
 			ValueFormatter: func(v interface{}) string {
 				if vf, isFloat := v.(float64); isFloat {
-					return fmt.Sprintf(" %0.0f", vf / 1000.0)
+					return fmt.Sprintf(" %0.0f", vf )/// 1000.0)
 				}
 				return ""
 			},
